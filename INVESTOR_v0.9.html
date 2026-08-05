@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>INVESTOR</title>
+  
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+  <style>
+    body {
+      margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #f8fafc; color: #1e293b; height: 100vh; display: flex; flex-direction: column;
+    }
+    
+    body.locked { overflow: hidden; }
+    body.syncing { overflow: hidden; pointer-events: none; }
+
+    /* 동기화 로딩 오버레이 */
+    .sync-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(3px);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 9998; visibility: hidden; opacity: 0; transition: opacity 0.3s ease;
+    }
+    .sync-overlay.active { visibility: visible; opacity: 1; pointer-events: all; }
+    .spinner {
+      width: 45px; height: 45px; border: 4px solid #e2e8f0; border-top-color: #3b82f6;
+      border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* 로그인 & 커스텀 모달 공통 */
+    .login-overlay, .custom-modal {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.6); display: flex; justify-content: center; align-items: center; z-index: 9999;
+      visibility: hidden; opacity: 0; transition: visibility 0s, opacity 0.2s linear;
+    }
+    .login-overlay.active, .custom-modal.active { visibility: visible; opacity: 1; pointer-events: all; }
+    .modal-content { background: white; padding: 40px 50px; border-radius: 16px; box-shadow: 0 15px 35px rgba(0,0,0,0.2); text-align: center; position: relative; max-width: 90%; width: 400px; }
+    .modal-content h2, .modal-content h3 { margin-top: 0; margin-bottom: 10px; color: #0f172a; }
+    .modal-content p { margin-bottom: 25px; color: #64748b; font-size: 0.95rem; }
+    .close-btn { position: absolute; top: 15px; right: 20px; font-size: 1.5rem; cursor: pointer; color: #94a3b8; transition: color 0.2s; }
+    .close-btn:hover { color: #0f172a; }
+    
+    .overlay-login-btn { background: #4285f4; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1.1rem; transition: background 0.2s; }
+    .overlay-login-btn:hover { background: #357ae8; }
+
+    /* 패치노트 전용 스크롤 */
+    .patch-scroll { max-height: 300px; overflow-y: auto; text-align: left; font-size: 0.9rem; line-height: 1.6; color: #334155; padding-right: 10px; }
+    .patch-scroll h4 { margin-top: 15px; margin-bottom: 5px; color: #3b82f6; }
+    .patch-scroll ul { margin: 0; padding-left: 20px; }
+
+    header { background-color: #0f172a; color: white; padding: 15px 30px; font-size: 1.2rem; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+    .header-right { display: flex; gap: 10px; align-items: center; }
+    
+    /* 상단 네비게이션 버튼들 */
+    .nav-btn { background: transparent; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.3); padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.2s; }
+    .nav-btn:hover { background: rgba(255,255,255,0.1); color: white; }
+    .login-btn, .reset-btn { border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500; transition: background 0.2s; color: white; font-size: 0.85rem; }
+    .login-btn { background: #4285f4; } .login-btn:hover { background: #357ae8; }
+    .reset-btn { background: #ef4444; } .reset-btn:hover { background: #dc2626; }
+    
+    .dashboard-container { display: flex; flex-direction: column; gap: 20px; padding: 20px; flex-grow: 1; box-sizing: border-box; height: calc(100vh - 60px); }
+    .row-top { display: flex; gap: 20px; flex: 5.5; min-height: 0; }
+    .row-bottom { display: flex; gap: 20px; flex: 4.5; min-height: 0; }
+    .quadrant-box { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; flex-direction: column; border: 1px solid #e2e8f0; overflow-y: auto; flex: 1; }
+    .row-top > .quadrant-box:first-child { flex: 0 0 calc(35% - 10px); }
+    .row-top > .quadrant-box:last-child { flex: 1; overflow: hidden; }
+
+    .header-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 12px; margin-bottom: 15px; }
+    h2 { margin: 0; font-size: 1.15rem; color: #0f172a; font-weight: 600; }
+    
+    .dropdown { position: relative; display: inline-block; margin-right: 8px; }
+    .dropbtn { background: #f8fafc; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 6px; cursor: pointer; color: #1e293b; font-weight: 600; font-size: 0.85rem; }
+    .dropbtn:hover { background: #e2e8f0; }
+    .dropdown-content { display: none; position: absolute; background-color: white; min-width: 170px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.1); z-index: 100; border-radius: 8px; border: 1px solid #e2e8f0; padding: 12px; top: 100%; right: 0; margin-top: 5px; flex-direction: column; gap: 10px; }
+    .dropdown-content.show { display: flex; }
+    .dropdown-content label { font-size: 0.9rem; display: flex; align-items: center; gap: 8px; cursor: pointer; color: #334155; }
+    .dropdown-content input[type="checkbox"] { cursor: pointer; width: 16px; height: 16px; accent-color: #3b82f6; }
+
+    .chart-controls { display: flex; gap: 6px; align-items: center; }
+    .chart-controls > button { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 6px 14px; border-radius: 6px; cursor: pointer; color: #475569; font-weight: 500; }
+    .chart-controls > button.active { background: #1e293b; color: white; border-color: #1e293b; }
+    .chart-container { flex-grow: 1; position: relative; width: 100%; height: 100%; min-height: 200px; }
+
+    .input-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .input-form > input, .input-form > select { padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; width: 100%; box-sizing: border-box; }
+    #sCurrency { grid-column: 1 / 3; }
+    
+    .action-group { grid-column: 1 / 3; display: flex; gap: 10px; margin-bottom: 10px; }
+    .action-group button { flex: 1; padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; color: white; transition: background 0.2s; }
+    .btn-primary { background: #3b82f6; } .btn-primary:hover { background: #2563eb; }
+    .btn-warning { background: #f59e0b; } .btn-secondary { background: #64748b; }
+
+    .edit-select-container { grid-column: 1 / 3; display: none; gap: 10px; align-items: center; background: #f1f5f9; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .edit-select-container select { flex: 1; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.9rem; }
+
+    .input-help { font-size: 0.8rem; color: #64748b; line-height: 1.4; }
+    .asset-summary { background: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #edf2f7; font-size: 0.95rem; line-height: 1.8; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .asset-value { font-size: 1.4rem; font-weight: 700; grid-column: 1 / 3; margin-top: 5px; }
+    .up { color: #ef4444; font-weight: bold; } .down { color: #3b82f6; font-weight: bold; }
+    
+    .stock-list-container { margin-top: 15px; flex-grow: 1; overflow-y: auto; }
+    .stock-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+    .item-info { flex-grow: 1; }
+    .action-btn { border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 500; background: #ef4444; color: white; }
+    
+    .insight-box { background: #f8fafc; padding: 18px; border-radius: 12px; margin-bottom: 10px; border-left: 5px solid #0f172a; line-height: 1.6; font-size: 0.95rem; }
+    .refresh-feedback-btn { background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: background 0.2s; }
+  </style>
+</head>
+<body>
+
+  <!-- 패치 노트 모달 -->
+  <div id="patchNotesModal" class="custom-modal">
+    <div class="modal-content" style="padding: 30px;">
+      <span class="close-btn" id="closePatchNotes">&times;</span>
+      <h3 style="text-align: left;">📝 패치 노트</h3>
+      <hr style="border: 0; height: 1px; background: #e2e8f0; margin-bottom: 15px;">
+      <div class="patch-scroll">
+        <h4>v1.0.0 (와! 첫 버전 빰파카빰)</h4>
+        <ul>
+          <li>와! 미국 주가도 입력할 수 있습니다.</li>
+          <li>이런 패치노트도 제가 작성할 수 있습니다. ㅎㅣㅎㅣ</li>
+          <li>총 자산 변화량을 유추하는 추세선을 보여주는 기능을 추가했습니다. 추후 보강 예정입니다.</li>
+          <li>근데 지금 버그있음</li>
+          <li>피드백 전송 기능이 제대로 작동을 안하네요. 이건 다음 버전에 계속...</li>
+          <li>그래서 대신 피드백은 인스타 디엠으로 받겠습니다 흑흑</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 건의사항 리포트 모달 -->
+  <div id="reportModal" class="custom-modal">
+    <div class="modal-content" style="padding: 30px;">
+      <span class="close-btn" id="closeReport">&times;</span>
+      <h3 style="text-align: left;">📢 건의사항 및 버그 제보</h3>
+      <p style="text-align: left; margin-bottom: 15px;">이용 중 불편한 점이나 추가되었으면 하는 기능을 자유롭게 적어주세요. 개발자에게 직접 전달됩니다!</p>
+      <textarea id="reportText" rows="5" placeholder="여기에 내용을 입력해 주세요..." style="width: 100%; box-sizing: border-box; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 15px; font-family: inherit; resize: none;"></textarea>
+      <button id="submitReportBtn" class="btn-primary" style="width: 100%; padding: 12px; font-size: 1rem;">의견 전송하기</button>
+    </div>
+  </div>
+
+  <!-- 로딩 오버레이 -->
+  <div id="syncOverlay" class="sync-overlay">
+    <div class="spinner"></div>
+    <h3 style="color:#0f172a; margin: 0 0 5px 0;">데이터 동기화 중...</h3>
+    <p style="color:#64748b; font-size:0.95rem; margin: 0;">최신 주식 및 자산 정보를 분석하고 있습니다.</p>
+  </div>
+
+  <!-- 로그인 오버레이 -->
+  <div id="loginOverlay" class="login-overlay active">
+    <div class="modal-content">
+      <h2>로그인이 필요합니다</h2>
+      <p>안전한 포트폴리오 관리 및 클라우드 동기화를 위해 구글 계정으로 로그인해 주세요.</p>
+      <button id="overlayLoginBtn" class="overlay-login-btn">구글 계정으로 시작하기</button>
+    </div>
+  </div>
+
+  <header>
+    <div>📈 Investor by TJOY <span style="font-size: 0.75rem; color: #94a3b8; font-weight: normal; margin-left: 8px; vertical-align: middle;">v1.0.0</span></div>
+    <div class="header-right">
+      <button class="nav-btn" id="patchNotesBtn">📝 패치노트</button>
+      <button class="nav-btn" id="reportBtn">📢 리포트</button>
+      <button id="loginBtn" class="login-btn">구글 로그인</button>
+      <button class="reset-btn" id="resetBtn">전체 초기화</button>
+    </div>
+  </header>
+
+  <div class="dashboard-container">
+    <div class="row-top">
+      <div class="quadrant-box">
+        <h2>💰 자산 현황 및 보유 종목</h2>
+        <div style="margin-bottom: 10px;"></div>
+        <div class="asset-summary">
+          <div style="grid-column: 1/3; font-size: 0.8rem; color: #64748b;">※ 달러 자산은 환율(1,350원) 일괄 적용 합산</div>
+          <div>총 매수 금액:</div><div style="text-align:right;"><span id="totalInvest">0 원</span></div>
+          <div>현재 평가 금액:</div><div style="text-align:right;"><span id="totalEval" class="">0 원</span></div>
+          <div>총 수익률:</div><div style="text-align:right;"><span id="totalReturn">0.00%</span></div>
+        </div>
+        <div class="stock-list-container" id="stockList"></div>
+      </div>
+
+      <div class="quadrant-box chart-box">
+        <div class="header-row">
+          <h2>📊 포트폴리오 수익률 및 자산 추세</h2>
+          <div class="chart-controls">
+            <div class="dropdown">
+              <button class="dropbtn" id="filterBtn">⚙️ 차트 표시 설정 ▼</button>
+              <div id="filterMenu" class="dropdown-content"></div>
+            </div>
+            <button id="btn-분" class="active">분</button>
+            <button id="btn-일">일</button>
+            <button id="btn-월">월</button>
+            <button id="btn-년">년</button>
+          </div>
+        </div>
+        <div id="mainChart" class="chart-container"></div>
+      </div>
+    </div>
+
+    <div class="row-bottom">
+      <div class="quadrant-box">
+        <h2>🛠️ 종목 추가 및 편집 <span id="userStatus" style="font-size:0.85rem; font-weight:normal; color:#3b82f6;"></span></h2>
+        <div style="margin-bottom: 15px;"></div>
+        
+        <div class="input-form">
+          <input type="text" id="sName" placeholder="종목명 (예: 삼성전자)">
+          <input type="text" id="sCode" placeholder="티커/코드 (예: 005930.KS)">
+          <select id="sCurrency">
+            <option value="KRW">🇰🇷 원화 (KRW) 결제</option>
+            <option value="USD">🇺🇸 달러 (USD) 결제</option>
+          </select>
+          <input type="number" id="sPrice" placeholder="매수단가">
+          <input type="number" id="sInvest" placeholder="총 매수 금액">
+        </div>
+        
+        <div class="action-group">
+          <button id="addBtn" class="btn-primary">포트폴리오에 추가</button>
+          <button id="toggleEditBtn" class="btn-secondary">종목 편집하기</button>
+        </div>
+
+        <div id="editSelectContainer" class="edit-select-container">
+          <span style="font-size: 0.9rem; font-weight: bold; color: #475569;">편집 대상:</span>
+          <select id="editStockSelect"></select>
+          <button id="cancelEditBtn" class="btn-secondary" style="padding: 8px 12px;">취소</button>
+        </div>
+        
+        <div class="input-help">※ 미국 주식은 <b>AAPL, TSLA</b> 등 기입<br>※ 한국 주식은 코드 뒤에 코스피(<b>.KS</b>), 코스닥(<b>.KQ</b>) 필수 기입</div>
+      </div>
+
+      <div class="quadrant-box">
+        <div class="header-row">
+          <h2>💡 실시간 투자 요약 및 맞춤형 피드백</h2>
+          <button class="refresh-feedback-btn" id="refreshFeedbackBtn">🔄 피드백 새로고침</button>
+        </div>
+        <div id="insightContent"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    
+    const firebaseConfig = {
+      apiKey: "AIzaSyAoCTiJ44yrkogzkvCOdjMGRzTAzSEsYX8",
+      authDomain: "investor-50733.firebaseapp.com",
+      databaseURL: "https://investor-50733-default-rtdb.firebaseio.com",
+      projectId: "investor-50733",
+      storageBucket: "investor-50733.firebasestorage.app",
+      messagingSenderId: "153602019041",
+      appId: "1:153602019041:web:10ed523e6cd2658615f1a0"
+    };
+    
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth();
+    const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
+
+    let currentUser = null;
+    let portfolio = [];
+    let apexChart = null; 
+    let editIndex = -1; 
+    
+    let currentMode = '분';
+    let currentRange = '1d';
+    let currentInterval = '2m';
+    
+    let hiddenSeriesNames = new Set();
+    const colors = ['#3b82f6', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6'];
+    const FIXED_FX_RATE = 1350;
+
+    function showSync() { document.getElementById('syncOverlay').classList.add('active'); }
+    function hideSync() { document.getElementById('syncOverlay').classList.remove('active'); }
+
+    // 모달 제어 이벤트
+    document.getElementById('patchNotesBtn').addEventListener('click', () => document.getElementById('patchNotesModal').classList.add('active'));
+    document.getElementById('closePatchNotes').addEventListener('click', () => document.getElementById('patchNotesModal').classList.remove('active'));
+    document.getElementById('reportBtn').addEventListener('click', () => document.getElementById('reportModal').classList.add('active'));
+    document.getElementById('closeReport').addEventListener('click', () => document.getElementById('reportModal').classList.remove('active'));
+
+    // 리포트 제출 핸들러 (Firestore Reports 컬렉션 전송)
+    document.getElementById('submitReportBtn').addEventListener('click', async () => {
+      const text = document.getElementById('reportText').value.trim();
+      if(!text) return alert('전송할 내용을 입력해 주세요.');
+      if(!currentUser) return alert('로그인 후 이용할 수 있습니다.');
+      
+      try {
+        const reportsRef = collection(db, "reports");
+        await addDoc(reportsRef, {
+          uid: currentUser.uid,
+          email: currentUser.email,
+          displayName: currentUser.displayName,
+          message: text,
+          timestamp: new Date()
+        });
+        alert('소중한 의견이 성공적으로 전달되었습니다!');
+        document.getElementById('reportText').value = '';
+        document.getElementById('reportModal').classList.remove('active');
+      } catch(e) {
+        console.error(e); alert('의견 전송 중 오류가 발생했습니다.');
+      }
+    });
+
+    async function handleAuthAction() { try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); } }
+    async function toggleLogin() { if (currentUser) { if(confirm("로그아웃 하시겠습니까?")) signOut(auth); } else { handleAuthAction(); } }
+
+    onAuthStateChanged(auth, (user) => {
+      const overlay = document.getElementById('loginOverlay');
+      if (user) {
+        currentUser = user;
+        document.getElementById('loginBtn').innerText = "로그아웃"; document.getElementById('loginBtn').style.background = "#64748b";
+        overlay.classList.remove('active'); document.body.classList.remove('locked');
+        loadData();
+      } else {
+        currentUser = null;
+        document.getElementById('loginBtn').innerText = "구글 로그인"; document.getElementById('loginBtn').style.background = "#4285f4";
+        overlay.classList.add('active'); document.body.classList.add('locked');
+        portfolio = []; updateAllData();
+      }
+    });
+
+    async function loadData() {
+      if (!currentUser) return;
+      try {
+        const docSnap = await getDoc(doc(db, "users", currentUser.uid));
+        if (docSnap.exists()) portfolio = docSnap.data().portfolio || [];
+      } catch(e) {}
+      updateAllData();
+    }
+
+    async function saveData(data) {
+      if (!currentUser) return;
+      try { await setDoc(doc(db, "users", currentUser.uid), { portfolio: data, lastUpdated: new Date() }); } catch (e) {}
+    }
+
+    function initChart() {
+      const options = {
+        series: [],
+        chart: { type: 'line', height: '100%', animations: { enabled: false }, toolbar: { show: true, tools: { zoom: true, pan: true, reset: true } } },
+        stroke: { curve: 'straight', width: 2 },
+        xaxis: { type: 'datetime', labels: { datetimeUTC: false } },
+        yaxis: [],
+        tooltip: {
+          shared: false, intersect: true,
+          custom: function({series, seriesIndex, dataPointIndex, w}) {
+            try {
+              const seriesObj = w.config.series[seriesIndex];
+              if (!seriesObj || !seriesObj.data || !seriesObj.data[dataPointIndex]) return '';
+              
+              const dataPoint = seriesObj.data[dataPointIndex];
+              const timestamp = dataPoint[0];
+              const valY = dataPoint[1];
+              const timeStr = new Date(timestamp).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+              
+              let popupContent = "";
+
+              if (seriesObj.code === 'TOTAL_VAL') {
+                popupContent = `<div style="color:#10b981; font-weight:bold; font-size:0.95rem; margin-top:5px;">📈 회귀분석 기반 자산 추세선 (3일 예측)</div>
+                                <div style="font-size:0.8rem; color:#64748b; margin-top:2px;">(현재까지의 데이터 흐름을 계산한 예측 추세입니다)</div>`;
+              } else {
+                let evalInfo = "";
+                if (window.chartGlobalTimeline && window.chartGlobalTimeline[timestamp]) {
+                  const info = window.chartGlobalTimeline[timestamp];
+                  if (seriesObj.code === 'TOTAL_RET') {
+                    evalInfo = `<div style="margin-top:8px;">총 평가액: <b style="font-size:1.05rem;">${Math.round(info.evalKRW).toLocaleString()} 원</b></div>`;
+                  } else if (info.stocks && info.stocks[seriesObj.code]) {
+                    const stockInfo = info.stocks[seriesObj.code];
+                    const priceStr = stockInfo.currency === 'USD' ? `$${stockInfo.price.toFixed(2)}` : `${Math.round(stockInfo.price).toLocaleString()} 원`;
+                    const evalStr = stockInfo.currency === 'USD' ? `$${Math.round(stockInfo.eval).toLocaleString()}` : `${Math.round(stockInfo.eval).toLocaleString()} 원`;
+                    
+                    evalInfo = `<div style="margin-bottom:6px; margin-top:8px;">당시 주가: <b style="font-size:1.15rem; color:#0f172a;">${priceStr}</b></div>
+                                <div style="font-size:0.85rem; color:#64748b;">평가액: ${evalStr}</div>`;
+                  }
+                }
+                popupContent = `<div>수익률: <span style="color:${valY >= 0 ? '#ef4444' : '#3b82f6'}; font-weight:bold; font-size:1.05rem;">${valY >= 0 ? '+' : ''}${valY.toFixed(2)}%</span></div>${evalInfo}`;
+              }
+              
+              return `<div style="padding:12px; background:white; border:1px solid #cbd5e1; font-size:0.9rem; border-radius: 10px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); color:#1e293b; z-index:99; min-width: 160px;">
+                        <div style="font-size: 0.8rem; color: #64748b; margin-bottom: 5px; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px;">🕒 ${timeStr}</div>
+                        <div style="font-weight:bold; margin-bottom:5px; color:#0f172a; font-size: 1rem;">${seriesObj.name}</div>
+                        ${popupContent}
+                      </div>`;
+            } catch (e) { return ''; }
+          }
+        },
+        grid: { borderColor: '#f1f5f9' },
+        noData: { text: '데이터 처리중입니다. 잠시 후 다시 시도해주세요.', align: 'center', verticalAlign: 'middle' }
+      };
+      apexChart = new ApexCharts(document.querySelector("#mainChart"), options);
+      apexChart.render();
+    }
+
+    async function fetchYahooData(ticker, range, interval) {
+      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${range}&interval=${interval}`;
+      const proxies = [
+        `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`,
+        `https://api.allorigins.win/get?url=${encodeURIComponent(yahooUrl)}`
+      ];
+
+      for (const proxyUrl of proxies) {
+        try {
+          const response = await fetch(proxyUrl);
+          if (response.ok) {
+            const data = await response.json();
+            const parsed = data.contents ? JSON.parse(data.contents) : data;
+            if (parsed.chart && parsed.chart.result) {
+              const result = parsed.chart.result[0];
+              const timestamps = result.timestamp;
+              const prices = result.indicators.quote[0].close;
+              let chartData = [];
+              let currentPrice = 0;
+              if (timestamps && prices) {
+                for(let i = 0; i < timestamps.length; i++) {
+                  if(prices[i] !== null) {
+                    chartData.push([timestamps[i] * 1000, prices[i]]);
+                    currentPrice = prices[i];
+                  }
+                }
+              }
+              return { chartData, currentPrice };
+            }
+          }
+        } catch (e) { continue; }
+      }
+      return null;
+    }
+
+    function renderFilters(seriesData) {
+      const menu = document.getElementById('filterMenu');
+      menu.innerHTML = '';
+      seriesData.forEach(s => {
+        const isChecked = hiddenSeriesNames.has(s.name) ? '' : 'checked';
+        menu.innerHTML += `<label><input type="checkbox" value="${s.name}" class="series-cb" ${isChecked}> ${s.name}</label>`;
+      });
+
+      document.querySelectorAll('.series-cb').forEach(cb => {
+        cb.addEventListener('change', function() {
+          if (this.checked) { hiddenSeriesNames.delete(this.value); apexChart.showSeries(this.value); } 
+          else { hiddenSeriesNames.add(this.value); apexChart.hideSeries(this.value); }
+        });
+      });
+    }
+
+    // 선형 회귀분석 (Linear Regression) 알고리즘
+    function calculateRegression(dataPoints) {
+      if (dataPoints.length < 2) return null;
+      const x0 = dataPoints[0][0]; // 정규화 기준 시간
+      const ONE_DAY_MS = 86400000;
+      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+      const n = dataPoints.length;
+
+      for (let i = 0; i < n; i++) {
+        const xDays = (dataPoints[i][0] - x0) / ONE_DAY_MS; // 큰 숫자로 인한 오버플로우 방지 (일 단위 변환)
+        const y = dataPoints[i][1];
+        sumX += xDays; sumY += y; sumXY += xDays * y; sumX2 += xDays * xDays;
+      }
+
+      const denominator = (n * sumX2 - sumX * sumX);
+      if (denominator === 0) return null;
+      const slope = (n * sumXY - sumX * sumY) / denominator;
+      const intercept = (sumY - slope * sumX) / n;
+      
+      return { slope, intercept, x0, ONE_DAY_MS };
+    }
+
+    async function updateAllData() {
+      if(portfolio.length === 0) {
+        renderDashboard(0, 0, 0);
+        if(apexChart) apexChart.updateSeries([]);
+        return;
+      }
+      
+      showSync();
+      
+      let seriesData = [];
+      let totalInvestSumKRW = 0;
+      let totalEvalSumKRW = 0;
+      let globalTimeline = {}; 
+
+      const promises = portfolio.map(async (stock) => {
+        const data = await fetchYahooData(stock.code, currentRange, currentInterval);
+        const currency = stock.currency || 'KRW';
+        
+        if(data && data.chartData.length > 0) {
+          stock.currentPrice = data.currentPrice;
+          const returnData = [];
+          
+          data.chartData.forEach(pt => {
+            const timestamp = pt[0]; const price = pt[1];
+            const retPct = ((price - stock.buyPrice) / stock.buyPrice) * 100;
+            const currentEval = price * stock.qty;
+            const investKRW = currency === 'USD' ? stock.totalInvest * FIXED_FX_RATE : stock.totalInvest;
+            const currentEvalKRW = currency === 'USD' ? currentEval * FIXED_FX_RATE : currentEval;
+            
+            if(!globalTimeline[timestamp]) globalTimeline[timestamp] = { investKRW: 0, evalKRW: 0, stocks: {} };
+            globalTimeline[timestamp].investKRW += investKRW;
+            globalTimeline[timestamp].evalKRW += currentEvalKRW;
+            globalTimeline[timestamp].stocks[stock.code] = { price: price, eval: currentEval, currency: currency };
+            
+            returnData.push([timestamp, isNaN(retPct) || !isFinite(retPct) ? 0 : Number(retPct.toFixed(2))]);
+          });
+          
+          seriesData.push({ name: stock.name, data: returnData, color: stock.color, code: stock.code, type: 'line' });
+          const finalEvalKRW = currency === 'USD' ? (stock.currentPrice * stock.qty) * FIXED_FX_RATE : (stock.currentPrice * stock.qty);
+          const finalInvestKRW = currency === 'USD' ? stock.totalInvest * FIXED_FX_RATE : stock.totalInvest;
+          totalInvestSumKRW += finalInvestKRW; totalEvalSumKRW += finalEvalKRW;
+        } else {
+          const fallbackInvestKRW = currency === 'USD' ? stock.totalInvest * FIXED_FX_RATE : stock.totalInvest;
+          totalInvestSumKRW += fallbackInvestKRW; totalEvalSumKRW += fallbackInvestKRW; 
+        }
+      });
+
+      await Promise.all(promises);
+
+      let totalReturnTimeline = [];
+      let totalAssetTimeline = [];
+      const sortedTimes = Object.keys(globalTimeline).sort((a, b) => Number(a) - Number(b));
+      sortedTimes.forEach(t => {
+        const gt = globalTimeline[t];
+        if(gt.investKRW > 0) {
+          const totalRetPct = ((gt.evalKRW - gt.investKRW) / gt.investKRW) * 100;
+          totalReturnTimeline.push([parseInt(t), isNaN(totalRetPct) || !isFinite(totalRetPct) ? 0 : Number(totalRetPct.toFixed(2))]);
+          totalAssetTimeline.push([parseInt(t), Math.round(gt.evalKRW)]);
+        }
+      });
+
+      if (totalReturnTimeline.length > 0) {
+        seriesData.push({ name: '★ 총 수익률', data: totalReturnTimeline, color: '#0f172a', code: 'TOTAL_RET', type: 'line' });
+        
+        // 회귀분석 기반 추세선 연산 (총 자산 기준)
+        const regressionData = calculateRegression(totalAssetTimeline);
+        let trendlineData = [];
+
+        if (regressionData) {
+          // 기존 시간대 매핑
+          totalAssetTimeline.forEach(pt => {
+            const xDays = (pt[0] - regressionData.x0) / regressionData.ONE_DAY_MS;
+            const predictedY = regressionData.slope * xDays + regressionData.intercept;
+            trendlineData.push([pt[0], Math.max(0, predictedY)]);
+          });
+
+          // 미래 3일 예측 점 생성
+          const lastTime = totalAssetTimeline[totalAssetTimeline.length - 1][0];
+          for (let i = 1; i <= 3; i++) {
+            const futureTime = lastTime + (i * regressionData.ONE_DAY_MS);
+            const futureXDays = (futureTime - regressionData.x0) / regressionData.ONE_DAY_MS;
+            const futurePredictedY = regressionData.slope * futureXDays + regressionData.intercept;
+            trendlineData.push([futureTime, Math.max(0, futurePredictedY)]);
+          }
+        } else {
+          trendlineData = totalAssetTimeline; // 연산 불가능 시 원본 데이터 출력
+        }
+
+        seriesData.push({ name: '💰 자산 추세 및 예측', data: trendlineData, color: '#10b981', code: 'TOTAL_VAL', type: 'line' });
+      }
+
+      window.chartGlobalTimeline = globalTimeline;
+
+      if(apexChart) {
+        let yaxisConfig = []; let strokeDashArray = []; let strokeWidth = []; let finalColors = [];
+
+        seriesData.forEach((s, idx) => {
+          finalColors.push(s.color);
+          if (s.code === 'TOTAL_VAL') {
+            yaxisConfig.push({ show: false }); // Y축 값 숨김 처리 (추세만 확인)
+            strokeDashArray.push(5); // 회귀분석 예측 점선 스타일
+            strokeWidth.push(3);
+          } else {
+            yaxisConfig.push({
+              show: idx === 0, 
+              title: { text: idx === 0 ? '수익률 (%)' : '' },
+              labels: { formatter: val => (val !== undefined && val !== null) ? Number(val).toFixed(2) + '%' : '' }
+            });
+            strokeDashArray.push(0);
+            strokeWidth.push(2);
+          }
+        });
+
+        apexChart.updateOptions({ colors: finalColors, yaxis: yaxisConfig, stroke: { dashArray: strokeDashArray, width: strokeWidth } });
+        apexChart.updateSeries(seriesData, true);
+        hiddenSeriesNames.forEach(name => { apexChart.hideSeries(name); });
+      }
+      
+      renderFilters(seriesData); 
+      saveData(portfolio);
+      
+      const totalReturnPct = totalInvestSumKRW > 0 ? ((totalEvalSumKRW - totalInvestSumKRW) / totalInvestSumKRW) * 100 : 0;
+      renderDashboard(totalInvestSumKRW, totalEvalSumKRW, totalReturnPct);
+      hideSync();
+    }
+
+    window.onclick = function(event) {
+      if (!event.target.matches('.dropbtn') && !event.target.closest('.dropdown')) {
+        document.getElementById('filterMenu').classList.remove('show');
+      }
+    };
+    document.getElementById('filterBtn').addEventListener('click', () => { document.getElementById('filterMenu').classList.toggle('show'); });
+
+    async function setTimeframe(mode, range, interval, btnId) {
+      document.querySelectorAll('.chart-controls > button').forEach(b => b.classList.remove('active'));
+      document.getElementById(btnId).classList.add('active');
+      currentMode = mode; currentRange = range; currentInterval = interval;
+      await updateAllData();
+    }
+
+    function addOrUpdateStock() {
+      const name = document.getElementById('sName').value.trim();
+      const code = document.getElementById('sCode').value.trim().toUpperCase();
+      const currency = document.getElementById('sCurrency').value;
+      const price = parseFloat(document.getElementById('sPrice').value);
+      const invest = parseFloat(document.getElementById('sInvest').value);
+
+      if(!name || !code || isNaN(price) || isNaN(invest) || price <= 0 || invest <= 0) { alert('모든 양식을 정확히 입력해 주세요.'); return; }
+      const calculatedQty = invest / price;
+
+      if(editIndex > -1) {
+        portfolio[editIndex].name = name; portfolio[editIndex].code = code; portfolio[editIndex].currency = currency;
+        portfolio[editIndex].buyPrice = price; portfolio[editIndex].totalInvest = invest; portfolio[editIndex].qty = calculatedQty; portfolio[editIndex].currentPrice = price; 
+        cancelEdit(); 
+      } else {
+        portfolio.push({ name: name, code: code, currency: currency, buyPrice: price, totalInvest: invest, qty: calculatedQty, currentPrice: price, color: colors[portfolio.length % colors.length] });
+      }
+      clearInputs(); updateAllData();
+    }
+
+    function openEditMode() {
+      if(portfolio.length === 0) { alert('편집할 종목이 없습니다.'); return; }
+      const selectEl = document.getElementById('editStockSelect');
+      selectEl.innerHTML = '<option value="-1">수정할 종목을 선택하세요</option>';
+      portfolio.forEach((stock, index) => { selectEl.innerHTML += `<option value="${index}">${stock.name} (${stock.code})</option>`; });
+      document.getElementById('editSelectContainer').style.display = 'flex'; clearInputs();
+    }
+
+    function selectStockForEdit(e) {
+      const index = parseInt(e.target.value);
+      if(index >= 0) {
+        const stock = portfolio[index];
+        document.getElementById('sName').value = stock.name; document.getElementById('sCode').value = stock.code;
+        document.getElementById('sCurrency').value = stock.currency || 'KRW';
+        document.getElementById('sPrice').value = stock.buyPrice; document.getElementById('sInvest').value = stock.totalInvest;
+        editIndex = index;
+        document.getElementById('addBtn').innerText = '수정 완료'; document.getElementById('addBtn').className = 'btn-warning'; 
+      } else { cancelEdit(); }
+    }
+
+    function cancelEdit() {
+      editIndex = -1; clearInputs();
+      document.getElementById('addBtn').innerText = '포트폴리오에 추가'; document.getElementById('addBtn').className = 'btn-primary';
+      document.getElementById('editSelectContainer').style.display = 'none'; document.getElementById('editStockSelect').value = '-1';
+    }
+
+    function deleteStock(index) {
+      if(confirm(`'${portfolio[index].name}' 종목을 삭제하시겠습니까?`)) {
+        hiddenSeriesNames.delete(portfolio[index].name);
+        portfolio.splice(index, 1);
+        if (editIndex === index) cancelEdit(); 
+        updateAllData();
+      }
+    }
+
+    function clearInputs() {
+      document.getElementById('sName').value = ''; document.getElementById('sCode').value = '';
+      document.getElementById('sPrice').value = ''; document.getElementById('sInvest').value = ''; document.getElementById('sCurrency').value = 'KRW';
+    }
+
+    async function resetData() {
+      if(confirm('모든 데이터를 삭제하시겠습니까?')) {
+        portfolio = []; hiddenSeriesNames.clear(); cancelEdit(); await saveData(portfolio);
+        if(apexChart) apexChart.updateSeries([]);
+        renderDashboard(0,0,0);
+      }
+    }
+
+    function renderDashboard(investKRW, evalValKRW, returnPct) {
+      const listContainer = document.getElementById('stockList');
+      if (portfolio.length === 0) {
+        document.getElementById('totalInvest').innerText = '0 원'; document.getElementById('totalEval').innerText = '0 원';
+        document.getElementById('totalReturn').innerText = '0.00%';
+        listContainer.innerHTML = '<p style="color:#64748b; text-align:center;">등록된 종목이 없습니다.</p>';
+        document.getElementById('insightContent').innerHTML = '<div class="insight-box">자산을 입력하시면 피드백이 생성됩니다.</div>';
+        return;
+      }
+      
+      const evalEl = document.getElementById('totalEval'); const retEl = document.getElementById('totalReturn');
+      document.getElementById('totalInvest').innerText = Math.round(investKRW).toLocaleString() + ' 원';
+      evalEl.innerText = Math.round(evalValKRW).toLocaleString() + ' 원';
+      retEl.innerText = (returnPct >= 0 ? '+' : '') + returnPct.toFixed(2) + '%';
+      evalEl.className = 'asset-value ' + (returnPct >= 0 ? 'up' : 'down'); retEl.className = returnPct >= 0 ? 'up' : 'down';
+
+      let listHTML = '';
+      portfolio.forEach((s, index) => {
+        const pReturn = ((s.currentPrice - s.buyPrice) / s.buyPrice * 100).toFixed(2);
+        const curSym = s.currency === 'USD' ? '$' : ''; const curSuf = s.currency === 'USD' ? '' : '원';
+        listHTML += `
+          <div class="stock-item">
+            <div class="item-info">
+              <span style="font-weight:600; color:${s.color};">■ ${s.name} (${s.code})</span><br>
+              <span style="font-size: 0.85rem; color: #64748b;">평단: ${curSym}${s.buyPrice.toLocaleString()}${curSuf} | 현재: ${curSym}${s.currentPrice.toLocaleString()}${curSuf} (<span class="${pReturn >= 0 ? 'up' : 'down'}">${pReturn >= 0 ? '+' : ''}${pReturn}%</span>)</span>
+            </div>
+            <div class="item-actions"><button class="action-btn" id="del-${index}">삭제</button></div>
+          </div>`;
+      });
+      listContainer.innerHTML = listHTML;
+      portfolio.forEach((s, index) => { document.getElementById(`del-${index}`).addEventListener('click', () => deleteStock(index)); });
+      generateInsight(returnPct, false);
+    }
+
+    function generateInsight(returnPct, isManual = false) {
+      if(portfolio.length === 0) return;
+      let badge = "", message = "";
+      if (returnPct >= 15) { badge = `<span class="up">[🔥 강력한 상승장]</span>`; message = `현재 포트폴리오 수익률이 ${returnPct.toFixed(2)}%로 매우 우수합니다. 수익 실현을 통한 현금 확보도 유효한 전략입니다.`; }
+      else if (returnPct >= 3) { badge = `<span class="up">[📈 안정적 우상향]</span>`; message = `전체적으로 안정적인 수익권(${returnPct.toFixed(2)}%)을 유지 중입니다. 현재 포지션을 유지하며 개별 종목의 펀더멘털을 점검하세요.`; }
+      else if (returnPct >= -3) { badge = `<span style="color:#f59e0b; font-weight:bold;">[⚖️ 보합 및 횡보]</span>`; message = `현재 수익률은 ${returnPct.toFixed(2)}%로 보합세입니다. 뚜렷한 방향성이 나타나지 않으므로 관망세를 추천합니다.`; }
+      else if (returnPct >= -15) { badge = `<span class="down">[⚠️ 단기 조정 및 하락]</span>`; message = `수익률이 ${returnPct.toFixed(2)}%로 손실 구간입니다. 무리한 물타기보다는 지지선을 이탈한 종목의 비중 축소를 고려하세요.`; }
+      else { badge = `<span class="down">[🚨 리스크 관리 집중]</span>`; message = `포트폴리오가 하방 압력(${returnPct.toFixed(2)}%)을 받고 있습니다. 손절매 라인을 점검하고 현금 비중을 늘려 계좌를 방어해야 합니다.`; }
+
+      document.getElementById('insightContent').innerHTML = `<div class="insight-box"><p style="margin-top:0; font-weight:700;">${badge} 포트폴리오 진단</p><p>${message}</p><p style="font-size:0.85rem; color:#64748b; margin-bottom:0; text-align:right;">업데이트: ${new Date().toLocaleTimeString()}</p></div>`;
+      if(isManual) { const btn = document.getElementById('refreshFeedbackBtn'); btn.innerText = '⚡ 동기화 완료'; setTimeout(() => btn.innerHTML = '🔄 피드백 새로고침', 1000); }
+    }
+
+    document.getElementById('overlayLoginBtn').addEventListener('click', handleAuthAction);
+    document.getElementById('loginBtn').addEventListener('click', toggleLogin);
+    document.getElementById('resetBtn').addEventListener('click', resetData);
+    document.getElementById('addBtn').addEventListener('click', addOrUpdateStock);
+    document.getElementById('toggleEditBtn').addEventListener('click', openEditMode);
+    document.getElementById('cancelEditBtn').addEventListener('click', cancelEdit);
+    document.getElementById('editStockSelect').addEventListener('change', selectStockForEdit);
+    document.getElementById('refreshFeedbackBtn').addEventListener('click', () => { generateInsight(parseFloat(document.getElementById('totalReturn').innerText), true); });
+
+    document.getElementById('btn-분').addEventListener('click', () => setTimeframe('분', '1d', '2m', 'btn-분'));
+    document.getElementById('btn-일').addEventListener('click', () => setTimeframe('일', '3mo', '1d', 'btn-일'));
+    document.getElementById('btn-월').addEventListener('click', () => setTimeframe('월', '2y', '1wk', 'btn-월'));
+    document.getElementById('btn-년').addEventListener('click', () => setTimeframe('년', '10y', '1mo', 'btn-년'));
+
+    document.body.classList.add('locked');
+    initChart();
+    setInterval(() => { if(currentMode === '분' && currentUser) updateAllData(); }, 60000);
+  </script>
+</body>
+</html>
